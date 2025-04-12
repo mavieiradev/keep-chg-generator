@@ -1,9 +1,5 @@
 # QD Apps - Support (Change Management System)
 
-<div align="center">
-    <img src="https://spread.com.br/wp-content/uploads/2023/10/logo-white.svg" width="250">
-</div>
-
 ## 📋 Description
 
 QD Apps - Support is a system developed to assist support teams in managing and controlling CHGs (Change Management). This tool automates the process of generating reports for communicating planned changes, facilitating the monitoring and notification of stakeholders through the Keep application.
@@ -65,11 +61,11 @@ streamlit run generate_chg_report.py
 
 ## 👥 Developed by
 
-QD Apps Support Team - Spread
+Mateus
 
 ## 📄 License
 
-Proprietary - © 2025 Spread
+Proprietary - © 2025 Mateus
 
 ---
 
