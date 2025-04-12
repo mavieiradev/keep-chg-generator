@@ -1,0 +1,7 @@
+streamlit
+pandas
+odfpy
+openpyxl
+schedule>=1.2.0 
+tabula-py
+pytz
