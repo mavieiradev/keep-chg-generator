@@ -1,0 +1,30 @@
+*Relatório de Incidentes QD APPs*
+
+*Período:* 12/04/2025 – 07h as 19h
+
+*1. Incidentes Críticos*
+* *Quantidade:* 0
+* *Funcionalidades:* N/A
+* *Responsáveis:* N/A
+
+*2. Incidentes Altos*
+* *Quantidade:* 0
+* *Funcionalidades:* N/A
+* *Responsáveis:* N/A
+
+*3. Incidentes Específicos*
+* *Quantidade:* 2
+* *Funcionalidades:* 
+    * INC3179928 - APLICATIVO VIVO - SUPORTE/PRECISO DE AJUDA
+    * INC3180351 - APLICATIVO VIVO - SERVICOS DIGITAIS - ATIVACAO
+* *Responsáveis:* QD Sustentação
+
+*4- Incidentes VIPS*
+* *Quantidade:* 0
+* *Funcionalidades:* N/A
+* *Responsáveis:* N/A
+
+*Observações*
+
+Att.
+Qd Spread

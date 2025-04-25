@@ -3,8 +3,9 @@ import pandas as pd
 import streamlit as st
 import os
 import json
+import traceback
 from logger import configurar_logs, registrar_log
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, time
 from pytz import timezone
 from chg_comparator import comparar_chgs
 from openpyxl.styles import PatternFill
@@ -15,6 +16,12 @@ from io import BytesIO
 from copy import deepcopy
 from openpyxl.formatting.rule import Rule
 from PIL import Image
+# Removendo a importação de gera_relatorio para evitar conflitos
+# from gera_relatorio import gerar_relatorio, processar_json
+# Importando o novo módulo para a página de relatório de incidentes
+from incident_report_page import render_incident_report_page
+# Importando o novo módulo para a página de processamento de testes
+from test_processor_page import render_test_processor_page
 
 # Carrega o favicon
 favicon = Image.open("spread_logo.png")
@@ -140,38 +147,171 @@ def processar_dados(uploaded_file):
     try:
         registrar_log("Iniciando processamento do arquivo", "info")
         
+        # Configurar timezone de Brasília
         tz_brasilia = timezone('America/Sao_Paulo')
-        hoje = datetime.now(tz_brasilia).date()
+        
+        # Obter data e hora atual
+        agora = datetime.now(tz_brasilia)
+        hoje = agora.date()
         amanha = hoje + timedelta(days=1)
         
-        df1 = pd.read_excel(uploaded_file, sheet_name='CHGs', engine='openpyxl')
-        df2 = pd.read_excel(uploaded_file, sheet_name='CHGs II', engine='openpyxl')
+        # Criar strings de datas para comparação
+        hoje_str = hoje.strftime('%Y-%m-%d')
+        amanha_str = amanha.strftime('%Y-%m-%d')
+        
+        registrar_log(f"Data de hoje: {hoje_str}, Data de amanhã: {amanha_str}", "info")
+        
+        try:
+            df1 = pd.read_excel(uploaded_file, sheet_name='CHGs', engine='openpyxl')
+            registrar_log(f"Leitura da aba CHGs concluída: {len(df1)} linhas", "info")
+        except Exception as e:
+            registrar_log(f"Erro na leitura da aba CHGs: {str(e)}", "erro")
+            df1 = pd.DataFrame()
+            
+        try:
+            df2 = pd.read_excel(uploaded_file, sheet_name='CHGs II', engine='openpyxl')
+            registrar_log(f"Leitura da aba CHGs II concluída: {len(df2)} linhas", "info")
+        except Exception as e:
+            registrar_log(f"Erro na leitura da aba CHGs II: {str(e)}", "erro")
+            df2 = pd.DataFrame()
+        
+        if df1.empty and df2.empty:
+            registrar_log("Ambas abas estão vazias ou não foram lidas corretamente", "erro")
+            st.error("Não foi possível ler dados do arquivo. Verifique se o formato está correto.")
+            return pd.DataFrame()
+            
         df = pd.concat([df1, df2], ignore_index=True)
+        registrar_log(f"Total de linhas após concatenação: {len(df)}", "info")
         
         colunas = ['Número', 'Descrição resumida', 'Status', 'Tipo de Indisponibilidade',
                  'Data de início planejada', 'Data de término planejada', 'IC Impactado', 
                  'Grupo de atribuição', 'Observação (Time Mudanças)', 'Enviar Keep']
         
+        # Verifica se todas as colunas existem
+        colunas_faltantes = [col for col in colunas if col not in df.columns]
+        if colunas_faltantes:
+            msg_erro = f"Colunas faltantes no arquivo: {', '.join(colunas_faltantes)}"
+            registrar_log(msg_erro, "erro")
+            st.error(msg_erro)
+            return pd.DataFrame()
+        
         df = df[colunas].copy()
-        df['Data de início planejada'] = pd.to_datetime(df['Data de início planejada'])
-        df['Data de término planejada'] = pd.to_datetime(df['Data de término planejada'])
+        
+        # Registrar informações sobre os tipos de dados na coluna 'Data de início planejada'
+        registrar_log(f"Tipo de dados na coluna 'Data de início planejada': {df['Data de início planejada'].dtype}", "info")
+        
+        # Converter datas para strings para evitar problemas de conversão
+        try:
+            # Verifica se a coluna já contém strings
+            if pd.api.types.is_string_dtype(df['Data de início planejada']):
+                registrar_log("A coluna 'Data de início planejada' já contém strings", "info")
+                # Converter string para datetime primeiro
+                df['Data de início planejada'] = pd.to_datetime(df['Data de início planejada'], errors='coerce')
+                registrar_log("Conversão de strings para datetime concluída", "info")
+            else:
+                # Tenta converter para datetime e depois para string
+                df['Data de início planejada'] = pd.to_datetime(df['Data de início planejada'], errors='coerce')
+                registrar_log("Conversão de 'Data de início planejada' para datetime concluída", "info")
+            
+            # Verificar se há valores nulos após a conversão
+            if df['Data de início planejada'].isna().any():
+                num_nulos = df['Data de início planejada'].isna().sum()
+                registrar_log(f"Atenção: {num_nulos} valores não puderam ser convertidos para data", "aviso")
+                # Remover linhas com datas nulas para evitar problemas
+                df = df.dropna(subset=['Data de início planejada'])
+                registrar_log(f"Linhas com datas nulas removidas. Restantes: {len(df)}", "info")
+            
+            # Verificar se ainda existem linhas após a filtragem
+            if df.empty:
+                registrar_log("Todas as linhas foram removidas durante a limpeza de datas", "erro")
+                st.error("Não foi possível processar o arquivo: todas as datas são inválidas.")
+                return pd.DataFrame()
+            
+            # Guarda a coluna original para exibição
+            df['Data de início original'] = df['Data de início planejada'].copy()
+            
+            # Cria uma coluna só com a data em formato string (YYYY-MM-DD)
+            df['data_inicio_str'] = df['Data de início planejada'].dt.strftime('%Y-%m-%d')
+            registrar_log(f"Criação da coluna 'data_inicio_str' concluída", "info")
+            
+            # Cria uma coluna só com a hora em formato numérico (24h)
+            df['hora_inicio'] = df['Data de início planejada'].dt.hour
+            registrar_log(f"Criação da coluna 'hora_inicio' concluída", "info")
+            
+            # Registrar amostra de algumas linhas para debug
+            amostra = df[['Data de início planejada', 'data_inicio_str', 'hora_inicio']].head(3)
+            registrar_log(f"Amostra de dados após conversão: {amostra.to_dict()}", "info")
+            
+            # Converter coluna Data de término planejada
+            df['Data de término planejada'] = pd.to_datetime(df['Data de término planejada'], errors='coerce')
+            
+            # Verificar se há valores nulos após a conversão da data de término
+            if df['Data de término planejada'].isna().any():
+                num_nulos = df['Data de término planejada'].isna().sum()
+                registrar_log(f"Atenção: {num_nulos} valores de data de término não puderam ser convertidos", "aviso")
+                # Remover linhas com datas de término nulas
+                df = df.dropna(subset=['Data de término planejada'])
+                registrar_log(f"Linhas com datas de término nulas removidas. Restantes: {len(df)}", "info")
+                
+            # Verificar se ainda existem linhas após a filtragem
+            if df.empty:
+                registrar_log("Todas as linhas foram removidas durante a limpeza de datas de término", "erro")
+                st.error("Não foi possível processar o arquivo: todas as datas de término são inválidas.")
+                return pd.DataFrame()
+        except Exception as e:
+            msg_erro = f"Erro na conversão de datas: {str(e)}"
+            registrar_log(msg_erro, "erro")
+            registrar_log(f"Detalhes do erro: {traceback.format_exc()}", "erro")
+            st.error(msg_erro)
+            return pd.DataFrame()
+        
         df['Observação (Time Mudanças)'] = df['Observação (Time Mudanças)'].fillna('')
         
-        # Filtro modificado para incluir hoje E amanhã, com filtro de horário para hoje e amanhã
-        df_filtrado = df[
-            (df['Data de início planejada'].dt.date.isin([hoje, amanha])) &
-            (df['Enviar Keep'].str.strip().str.lower() == 'sim') &
-            (
-                (df['Data de início planejada'].dt.date == hoje) & (df['Data de início planejada'].dt.time >= pd.to_datetime('17:00').time()) |
-                (df['Data de início planejada'].dt.date == amanha) & (df['Data de início planejada'].dt.time < pd.to_datetime('04:00').time())
-            )
-        ]
-        
-        registrar_log(f"CHGs encontradas (hoje a partir das 17:00 e amanhã até 04:00): {len(df_filtrado)}", "info")
-        return df_filtrado
+        # Lógica de filtragem baseada em strings e valores numéricos
+        try:
+            # Filtro para hoje: data == hoje E hora >= 17
+            hoje_filtro = (df['data_inicio_str'] == hoje_str) & (df['hora_inicio'] >= 17)
+            registrar_log(f"Filtro para hoje criado: {hoje_filtro.sum()} linhas", "info")
+            
+            # Filtro para amanhã: data == amanhã E hora < 4
+            amanha_filtro = (df['data_inicio_str'] == amanha_str) & (df['hora_inicio'] < 4)
+            registrar_log(f"Filtro para amanhã criado: {amanha_filtro.sum()} linhas", "info")
+            
+            # Filtro para Enviar Keep
+            if 'Enviar Keep' in df.columns:
+                df['Enviar Keep'] = df['Enviar Keep'].astype(str)
+                keep_filtro = df['Enviar Keep'].str.strip().str.lower() == 'sim'
+                registrar_log(f"Filtro para 'Enviar Keep' criado: {keep_filtro.sum()} linhas", "info")
+            else:
+                registrar_log("Coluna 'Enviar Keep' não encontrada, considerando todas as linhas", "aviso")
+                keep_filtro = pd.Series([True] * len(df))
+            
+            # Filtragem final
+            df_filtrado = df[
+                (hoje_filtro | amanha_filtro) &
+                keep_filtro
+            ]
+            
+            # Remover colunas auxiliares que não serão mostradas no relatório
+            if 'data_inicio_str' in df_filtrado.columns:
+                df_filtrado = df_filtrado.drop(columns=['data_inicio_str'])
+            if 'hora_inicio' in df_filtrado.columns:
+                df_filtrado = df_filtrado.drop(columns=['hora_inicio'])
+            
+            registrar_log(f"CHGs encontradas (hoje a partir das 17:00 e amanhã até 04:00): {len(df_filtrado)}", "info")
+            return df_filtrado
+        except Exception as e:
+            msg_erro = f"Erro na filtragem de dados: {str(e)}"
+            registrar_log(msg_erro, "erro")
+            registrar_log(f"Detalhes do erro: {traceback.format_exc()}", "erro")
+            st.error(msg_erro)
+            return pd.DataFrame()
         
     except Exception as e:
+        erro_detalhado = traceback.format_exc()
         st.error(f"Erro crítico: {str(e)}")
+        registrar_log(f"Erro no processamento: {str(e)}", "erro")
+        registrar_log(f"Detalhes do erro: {erro_detalhado}", "erro")
         return pd.DataFrame()
 
 def gerar_relatorio(df):
@@ -188,13 +328,24 @@ Segue CHGs que serão executadas:
         tipo_indisponibilidade = str(row['Tipo de Indisponibilidade']).lower()
         indisponibilidade = "📵 " if "indisponibilidade parcial" in tipo_indisponibilidade or "indisponibilidade total" in tipo_indisponibilidade else "👍 "
         
+        # Formatar datas com tratamento de erro
+        try:
+            data_inicio = row['Data de início planejada'].strftime('%d/%m/%Y %H:%M')
+        except:
+            data_inicio = "[Data inválida]"
+            
+        try:
+            data_termino = row['Data de término planejada'].strftime('%d/%m/%Y %H:%M')
+        except:
+            data_termino = "[Data inválida]"
+        
         relatorio += f"""*Mudança:* {row['Número']}
 *✏ Descrição:* {row['Descrição resumida']}
 *Tipo de Indisponibilidade:* {indisponibilidade}{row['Tipo de Indisponibilidade']}
 *IC Impactado:* {row['IC Impactado']}
 *Grupo de atribuição:* {row['Grupo de atribuição']}
-*Início:* {row['Data de início planejada'].strftime('%d/%m/%Y %H:%M')}
-*Término:* {row['Data de término planejada'].strftime('%d/%m/%Y %H:%M')}
+*Início:* {data_inicio}
+*Término:* {data_termino}
 *Observação:* {row['Observação (Time Mudanças)']}\n\n"""
 
     relatorio += """*Legenda:*
@@ -213,91 +364,92 @@ COLUNAS_ALVO = [
     'Status', 'N° INC'
 ]
 
-STATUS_VALIDOS = ['Passed', 'Not Executed', 'Failed']
-CORES_STATUS = {
-    'Passed': PatternFill(start_color='C6EFCE', end_color='C6EFCE', fill_type='solid'),
-    'Not Executed': PatternFill(start_color='FFEB9C', end_color='FFEB9C', fill_type='solid'),
-    'Failed': PatternFill(start_color='FFC7CE', end_color='FFC7CE', fill_type='solid')
-}
+# Removendo o código duplicado pois agora estamos usando o módulo test_processor.py
+# As constantes abaixo são definidas no test_processor.py
 
-COLUNAS_IGNORAR = ['ID Fluxo', 'Planejamento', 'Prioridade', 'Obervação']
-COLUNAS_DESTINO = [
-    'Data', 'Frente', 'Canal', 'Plataforma', 'Tipo de Plano', 'Plano',
-    'Característica da massa', 'Entrypoint', 'Funcionalidade', 'Cenário',
-    'Resultado esperado', 'Status', 'N° INC'
-]
+# STATUS_VALIDOS = ['Passed', 'Not Executed', 'Failed']
+# CORES_STATUS = {
+#     'Passed': PatternFill(start_color='C6EFCE', end_color='C6EFCE', fill_type='solid'),
+#     'Not Executed': PatternFill(start_color='FFEB9C', end_color='FFEB9C', fill_type='solid'),
+#     'Failed': PatternFill(start_color='FFC7CE', end_color='FFC7CE', fill_type='solid')
+# }
 
-def processar_testes(arquivo_caderno, arquivo_diario, data_manual=None):
-    """Processa e mescla os arquivos de teste no arquivo diário existente"""
-    try:
-        dfs = []
-        for sheet_name in ['Full Web', 'Priorizado']:
-            try:
-                df = pd.read_excel(
-                    arquivo_caderno,
-                    sheet_name=sheet_name,
-                    engine='openpyxl',
-                    dtype=str
-                )
-                
-                df = df.rename(columns={
-                    'Obervação': 'Observação',
-                    'Status': 'Status',
-                    'N° INC': 'N° INC'
-                }).drop(columns=COLUNAS_IGNORAR, errors='ignore')
-                
-                dfs.append(df)
-                
-            except Exception as e:
-                st.warning(f"Erro ao processar aba {sheet_name}: {str(e)}")
-                continue
-        
-        if not dfs:
-            st.error("Nenhuma aba válida encontrada!")
-            return None, 0
-            
-        df_combined = pd.concat(dfs, axis=0, ignore_index=True, sort=False)
-        df_combined['Status'] = df_combined['Status'].str.strip().str.title()
-        df_filtrado = df_combined[df_combined['Status'].isin(STATUS_VALIDOS)].copy()
-        
-        if df_filtrado.empty:
-            st.warning("Nenhum teste válido encontrado para processar!")
-            return None, 0
-        
-        data = data_manual if data_manual else datetime.now(timezone('America/Sao_Paulo')).strftime('%d/%m/%Y')
-        df_filtrado.insert(0, 'Data', data)
-        
-        wb = load_workbook(BytesIO(arquivo_diario.read()))
-        ws = wb['B2C']
-        
-        ultima_linha = ws.max_row
-        while ws.cell(row=ultima_linha, column=1).value is None:
-            ultima_linha -= 1
-        
-        header = [cell.value for cell in ws[1]]
-        df_mapped = df_filtrado.reindex(columns=header, fill_value='')
-        
-        for r_idx, row in enumerate(dataframe_to_rows(df_mapped, index=False, header=False), 1):
-            nova_linha = ultima_linha + r_idx
-            for c_idx, value in enumerate(row, 1):
-                cell = ws.cell(row=nova_linha, column=c_idx, value=value)
-                
-                if header[c_idx-1] == 'Status':
-                    status = str(value).strip().title()
-                    cell.fill = CORES_STATUS.get(status, PatternFill())
-        
-        output = BytesIO()
-        wb.save(output)
-        output.seek(0)
-        
-        return output, len(df_filtrado)
+# COLUNAS_IGNORAR = ['ID Fluxo', 'Planejamento', 'Prioridade', 'Obervação']
+# COLUNAS_DESTINO = [
+#     'Data', 'Frente', 'Canal', 'Plataforma', 'Tipo de Plano', 'Plano',
+#     'Característica da massa', 'Entrypoint', 'Funcionalidade', 'Cenário',
+#     'Resultado esperado', 'Status', 'N° INC'
+# ]
 
-    except Exception as e:
-        st.error(f"Erro crítico: {str(e)}")
-        raise
+# def processar_testes(arquivo_caderno, arquivo_diario, data_manual=None):
+#     """Processa e mescla os arquivos de teste no arquivo diário existente"""
+#     try:
+#         dfs = []
+#         for sheet_name in ['Full Web', 'Priorizado']:
+#             try:
+#                 df = pd.read_excel(
+#                     arquivo_caderno,
+#                     sheet_name=sheet_name,
+#                     engine='openpyxl',
+#                     dtype=str
+#                 )
+#                 
+#                 df = df.rename(columns={
+#                     'Obervação': 'Observação',
+#                     'Status': 'Status',
+#                     'N° INC': 'N° INC'
+#                 }).drop(columns=COLUNAS_IGNORAR, errors='ignore')
+#                 
+#                 dfs.append(df)
+#                 
+#             except Exception as e:
+#                 st.warning(f"Erro ao processar aba {sheet_name}: {str(e)}")
+#                 continue
+#         
+#         if not dfs:
+#             st.error("Nenhuma aba válida encontrada!")
+#             return None, 0
+#             
+#         df_combined = pd.concat(dfs, axis=0, ignore_index=True, sort=False)
+#         df_combined['Status'] = df_combined['Status'].str.strip().str.title()
+#         df_filtrado = df_combined[df_combined['Status'].isin(STATUS_VALIDOS)].copy()
+#         
+#         if df_filtrado.empty:
+#             st.warning("Nenhum teste válido encontrado para processar!")
+#             return None, 0
+#         
+#         data = data_manual if data_manual else datetime.now(timezone('America/Sao_Paulo')).strftime('%d/%m/%Y')
+#         df_filtrado.insert(0, 'Data', data)
+#         
+#         wb = load_workbook(BytesIO(arquivo_diario.read()))
+#         ws = wb['B2C']
+#         
+#         ultima_linha = ws.max_row
+#         while ws.cell(row=ultima_linha, column=1).value is None:
+#             ultima_linha -= 1
+#         
+#         header = [cell.value for cell in ws[1]]
+#         df_mapped = df_filtrado.reindex(columns=header, fill_value='')
+#         
+#         for r_idx, row in enumerate(dataframe_to_rows(df_mapped, index=False, header=False), 1):
+#             nova_linha = ultima_linha + r_idx
+#             for c_idx, value in enumerate(row, 1):
+#                 cell = ws.cell(row=nova_linha, column=c_idx, value=value)
+#                 
+#                 if header[c_idx-1] == 'Status':
+#                     status = str(value).strip().title()
+#                     cell.fill = CORES_STATUS.get(status, PatternFill())
+#         
+#         output = BytesIO()
+#         wb.save(output)
+#         output.seek(0)
+#         
+#         return output, len(df_filtrado)
+# 
+#     except Exception as e:
+#         st.error(f"Erro crítico: {str(e)}")
+#         raise
 
-
-# ========== NOVAS CONSTANTES ==========
 COLUNAS_OCORRENCIAS = [
     'Número', 'Incidentes secundários', 'Aberto', 'Prioridade', 'Estado',
     'Descrição resumida', 'Descrição', 'Aberto por', 'Atribuído a',
@@ -379,6 +531,8 @@ def atualizar_ocorrencias(planilha_base, planilha_funcionais, planilha_criticos)
 # ========== Interface Streamlit ==========
 tabs = st.tabs([
     "📤 Gerador de Keep CHGs",
+    "📊 Relatório de Incidentes",
+    "📋 Processador de Testes",
     "⚙️ Sobre"
 ])
 
@@ -435,7 +589,16 @@ with tabs[0]:
                         </div>
                     """, unsafe_allow_html=True)
 
+# Nova aba para Relatório de Incidentes - usando o módulo separado
 with tabs[1]:
+    render_incident_report_page()
+
+# Nova aba para Processador de Testes - usando o módulo separado
+with tabs[2]:
+    render_test_processor_page()
+
+# A aba "Sobre" agora será a quarta aba
+with tabs[3]:
     st.markdown("""
         <div style="background-color: #f8f9fa; padding: 20px; border-radius: 10px; margin-bottom: 20px;">
             <h2 style="color: #1f61d9; margin-bottom: 20px;">⚙️ Sobre o Sistema</h2>

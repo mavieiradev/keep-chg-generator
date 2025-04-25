@@ -1,76 +1,70 @@
-# QD Apps - Support (Change Management System)
+# Gerador de Relatório de Incidentes QD APPs
 
-<div align="center">
-    <img src="https://spread.com.br/wp-content/uploads/2023/10/logo-white.svg" width="250">
-</div>
+Este script Python processa dados JSON de incidentes e gera um relatório formatado seguindo um padrão específico de "keep".
 
-## 📋 Description
+## Funcionalidades
 
-QD Apps - Support is a system developed to assist support teams in managing and controlling CHGs (Change Management). This tool automates the process of generating reports for communicating planned changes, facilitating the monitoring and notification of stakeholders through the Keep application.
+- Processa dados JSON com registros de incidentes
+- Categoriza os incidentes por prioridade
+- Extrai informações de funcionalidades e responsáveis
+- Gera um relatório no formato solicitado
+- Salva o relatório em um arquivo texto
 
-## ✨ Features
+## Requisitos
 
-- **Keep CHGs Generator**: Automatically creates formatted reports for Keep based on CHG files
-- **Smart Filter**: Identifies relevant CHGs for the current period (today from 5:00 PM and tomorrow until 4:00 AM)
-- **Preview**: Allows you to preview the report before downloading it
-- **Test Processing**: Handles and analyzes test data from different platforms
-- **Occurrence Updates**: Integrates functional and critical occurrence data
+- Python 3.6 ou superior
 
-## 🚀 Technologies Used
+## Como Usar
 
-- **Streamlit**: Framework for creating the web interface
-- **Pandas**: Data processing and analysis
-- **OpenPyXL**: Advanced Excel file manipulation
-- **Python Timezone (pytz)**: Timezone management
-- **PIL (Pillow)**: Image processing
-
-## 🛠️ Installation
+### Passando um arquivo JSON como argumento
 
 ```bash
-# Clone the repository
-git clone https://github.com/your-user/qd-apps-support.git
-
-# Enter the directory
-cd qd-apps-support
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Run the application
-streamlit run generate_chg_report.py
+python gera_relatorio.py exemplo.json
 ```
 
-## 📊 How to Use
+### Inserindo o JSON manualmente
 
-1. Start the application with `streamlit run generate_chg_report.py`
-2. Access the application in the browser (usually at http://localhost:8501)
-3. In the "Keep CHGs Generator" tab, upload the Excel file containing the CHGs
-4. The system will automatically process the file and generate a formatted report
-5. Preview and download the report
+```bash
+python gera_relatorio.py
+```
+O script solicitará que você cole o JSON de incidentes.
 
-## 📁 Project Structure
+## Formato do Relatório
 
-- **generate_chg_report.py**: Main file containing the application logic
-- **logger.py**: Logging configuration and functions
-- **chg_comparator.py**: Module for comparing CHGs
-- **spread_logo.png**: Logo used in the interface
-- **requirements.txt**: Project dependencies
+O relatório gerado segue o seguinte formato:
 
-## 🔄 Processing Flow
+```
+*Relatório de Incidentes QD APPs*
 
-1. The user uploads an Excel file containing CHG information
-2. The system filters relevant CHGs (today from 5:00 PM and tomorrow until 4:00 AM)
-3. The filtered CHGs are formatted into a report for Keep
-4. The user can preview and download the generated report
+*Período:* xx/xx/xxxx – 07h as 19h
 
-## 👥 Developed by
+*1. Incidentes Críticos*
+* *Quantidade:* X
+* *Funcionalidade:* Lista de funcionalidades
+* *Responsáveis:* Lista de responsáveis
 
-QD Apps Support Team - Spread
+*2. Incidentes Altos*
+...
 
-## 📄 License
+*3. Incidentes Específicos*
+...
 
-Proprietary - © 2025 Spread
+*4- Incidentes VIPS*
+...
 
----
+*Observações*
 
-*Version 2.5*
+Att.
+Qd Spread
+```
+
+## Categorização de Incidentes
+
+- **Incidentes Críticos**: Prioridade 3
+- **Incidentes Altos**: Prioridade 4 (assumido)
+- **Incidentes Específicos**: Prioridade 5
+- **Incidentes VIPS**: Identificados por menção a "VIP" na descrição (assumido)
+
+## Exemplo
+
+Um exemplo de JSON está disponível no arquivo `exemplo.json`.
